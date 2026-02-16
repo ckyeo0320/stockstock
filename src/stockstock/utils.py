@@ -25,7 +25,10 @@ def is_market_open() -> bool:
     now_et = datetime.now(ET)
     cal = get_nyse_calendar()
 
-    if not cal.is_session(now_et.date()):
+    try:
+        if not cal.is_session(now_et.date()):
+            return False
+    except ValueError:
         return False
 
     # exchange-calendars는 tz-naive timestamp를 기대
@@ -41,7 +44,10 @@ def is_trading_day(d: date | None = None) -> bool:
     if d is None:
         d = datetime.now(ET).date()
     cal = get_nyse_calendar()
-    return cal.is_session(d)
+    try:
+        return cal.is_session(d)
+    except ValueError:
+        return False
 
 
 def now_et() -> datetime:

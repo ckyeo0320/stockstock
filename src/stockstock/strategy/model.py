@@ -41,15 +41,26 @@ class LGBMTradingModel:
 
     def __init__(self) -> None:
         self._model: lgb.LGBMClassifier | None = None
+        self._booster: lgb.Booster | None = None  # 로드된 모델용
+        self._classes: np.ndarray | None = None  # 로드된 모델의 클래스 레이블
         self._feature_cols = get_feature_columns()
 
     def _create_labels(self, df: pd.DataFrame) -> pd.Series:
-        """향후 N일 수익률 기반 레이블을 생성합니다."""
+        """향후 N일 수익률 기반 레이블을 생성합니다.
+
+        마지막 FORWARD_DAYS 행은 미래 데이터 부재로 NaN 반환.
+        """
         forward_return = df["close"].shift(-FORWARD_DAYS) / df["close"] - 1
 
-        labels = pd.Series("HOLD", index=df.index)
-        labels[forward_return > LABEL_UP_THRESHOLD] = "UP"
-        labels[forward_return < LABEL_DOWN_THRESHOLD] = "DOWN"
+        # NaN인 행은 레이블도 NaN (학습에서 제외됨)
+        labels = pd.Series(np.nan, index=df.index, dtype=object)
+        valid = forward_return.notna()
+        labels[valid & (forward_return > LABEL_UP_THRESHOLD)] = "UP"
+        labels[valid & (forward_return < LABEL_DOWN_THRESHOLD)] = "DOWN"
+        not_up = ~(forward_return > LABEL_UP_THRESHOLD)
+        not_down = ~(forward_return < LABEL_DOWN_THRESHOLD)
+        hold_mask = valid & not_up & not_down
+        labels[hold_mask] = "HOLD"
 
         return labels
 
@@ -125,21 +136,33 @@ class LGBMTradingModel:
             signal: "UP", "DOWN", "HOLD"
             confidence: 0.0~1.0
         """
-        if self._model is None:
+        if not self.is_loaded:
             raise RuntimeError("모델이 로드되지 않았습니다. train() 또는 load()를 먼저 호출하세요.")
 
         # 가장 최근 행의 피처 사용
         X = df[self._feature_cols].iloc[[-1]]
 
-        prediction = self._model.predict(X)[0]
-        probabilities = self._model.predict_proba(X)[0]
+        if self._model is not None:
+            # train()으로 학습된 모델 — LGBMClassifier API 사용
+            prediction = self._model.predict(X)[0]
+            probabilities = self._model.predict_proba(X)[0]
+            classes = self._model.classes_
+        else:
+            # load()로 로드된 모델 — Booster API 직접 사용
+            raw_pred = self._booster.predict(X)  # type: ignore[union-attr]
+            # 다중 클래스: (1, n_classes) 형태의 확률 반환
+            probabilities = raw_pred[0]
+            pred_idx = int(np.argmax(probabilities))
+            classes = self._classes  # type: ignore[assignment]
+            prediction = classes[pred_idx]
+
         confidence = float(max(probabilities))
 
         log.info(
             "prediction_made",
             prediction=prediction,
             confidence=confidence,
-            probabilities=dict(zip(self._model.classes_, probabilities.tolist())),
+            probabilities=dict(zip(classes, probabilities.tolist())),
         )
 
         return str(prediction), confidence
@@ -169,20 +192,12 @@ class LGBMTradingModel:
         model_path = Path(path)
         meta_path = model_path.with_suffix(".meta.json")
 
-        booster = lgb.Booster(model_file=str(model_path))
+        self._booster = lgb.Booster(model_file=str(model_path))
         meta = json.loads(meta_path.read_text())
-
-        # LGBMClassifier를 재구성
-        self._model = lgb.LGBMClassifier()
-        self._model._Booster = booster
-        self._model._le = None  # label encoder not needed for loaded models
-        self._model.fitted_ = True
-        self._model._n_classes = len(meta["classes"])
-        self._model.classes_ = np.array(meta["classes"])
-        self._model._n_features = len(self._feature_cols)
+        self._classes = np.array(meta["classes"])
 
         log.info("model_loaded", path=path, version=meta.get("version"))
 
     @property
     def is_loaded(self) -> bool:
-        return self._model is not None
+        return self._model is not None or self._booster is not None

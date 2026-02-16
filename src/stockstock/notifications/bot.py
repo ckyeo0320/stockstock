@@ -30,6 +30,7 @@ class TelegramBot:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._callbacks: dict[str, object] = {}
+        self._ready = threading.Event()
 
     def register_callback(self, command: str, callback: object) -> None:
         """명령어 콜백을 등록합니다."""
@@ -43,6 +44,8 @@ class TelegramBot:
 
         self._thread = threading.Thread(target=self._run_bot, daemon=True)
         self._thread.start()
+        # 봇이 준비될 때까지 최대 10초 대기
+        self._ready.wait(timeout=10)
         log.info("telegram_bot_started")
 
     def _run_bot(self) -> None:
@@ -66,6 +69,9 @@ class TelegramBot:
         self._app.add_handler(CommandHandler("signals", self._cmd_signals))
         self._app.add_handler(CommandHandler("ping", self._cmd_ping))
 
+        # 준비 완료 시그널
+        self._ready.set()
+
         self._loop.run_until_complete(self._app.run_polling(allowed_updates=Update.ALL_TYPES))
 
     def _is_authorized(self, update: Update) -> bool:
@@ -82,55 +88,58 @@ class TelegramBot:
             )
         return authorized
 
+    async def _run_callback(self, name: str) -> str | None:
+        """동기 콜백을 스레드풀에서 실행합니다 (이벤트 루프 차단 방지)."""
+        cb = self._callbacks.get(name)
+        if callable(cb):
+            try:
+                result = await asyncio.to_thread(cb)
+                return result
+            except Exception:
+                log.error("telegram_callback_error", command=name, exc_info=True)
+                return "명령 처리 중 오류가 발생했습니다."
+        return None
+
     async def _cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_authorized(update):
             return
-        cb = self._callbacks.get("start")
-        if callable(cb):
-            cb()
+        await self._run_callback("start")
         await update.message.reply_text("🟢 자동매매를 시작합니다.")  # type: ignore[union-attr]
 
     async def _cmd_stop(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_authorized(update):
             return
-        cb = self._callbacks.get("stop")
-        if callable(cb):
-            cb()
+        await self._run_callback("stop")
         await update.message.reply_text("🔴 자동매매를 중지합니다.")  # type: ignore[union-attr]
 
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_authorized(update):
             return
-        cb = self._callbacks.get("status")
-        msg = cb() if callable(cb) else "상태 정보를 가져올 수 없습니다."
+        msg = await self._run_callback("status") or "상태 정보를 가져올 수 없습니다."
         await update.message.reply_text(msg)  # type: ignore[union-attr]
 
     async def _cmd_portfolio(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_authorized(update):
             return
-        cb = self._callbacks.get("portfolio")
-        msg = cb() if callable(cb) else "포트폴리오 정보를 가져올 수 없습니다."
+        msg = await self._run_callback("portfolio") or "포트폴리오 정보를 가져올 수 없습니다."
         await update.message.reply_text(msg)  # type: ignore[union-attr]
 
     async def _cmd_pnl(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_authorized(update):
             return
-        cb = self._callbacks.get("pnl")
-        msg = cb() if callable(cb) else "손익 정보를 가져올 수 없습니다."
+        msg = await self._run_callback("pnl") or "손익 정보를 가져올 수 없습니다."
         await update.message.reply_text(msg)  # type: ignore[union-attr]
 
     async def _cmd_trades(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_authorized(update):
             return
-        cb = self._callbacks.get("trades")
-        msg = cb() if callable(cb) else "거래 내역을 가져올 수 없습니다."
+        msg = await self._run_callback("trades") or "거래 내역을 가져올 수 없습니다."
         await update.message.reply_text(msg)  # type: ignore[union-attr]
 
     async def _cmd_signals(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_authorized(update):
             return
-        cb = self._callbacks.get("signals")
-        msg = cb() if callable(cb) else "시그널 정보를 가져올 수 없습니다."
+        msg = await self._run_callback("signals") or "시그널 정보를 가져올 수 없습니다."
         await update.message.reply_text(msg)  # type: ignore[union-attr]
 
     async def _cmd_ping(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

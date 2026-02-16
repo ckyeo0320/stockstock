@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 
 from stockstock.broker.account import AccountBalance
 from stockstock.logging_config import get_logger
@@ -93,19 +92,24 @@ def _evaluate_buy(
             reason="매수 가능한 USD 현금이 없습니다",
         )
 
-    # 총 포트폴리오 가치 산출 (USD 기준 근사치)
+    # 총 포트폴리오 가치 산출 (USD 기준)
     total_portfolio_usd = available_cash
-    current_position_value = Decimal(0)
+    current_position_value_usd = 0.0
 
     for h in balance.holdings:
-        holding_usd = float(h.current_amount)
+        # current_amount는 KRW 환산값일 수 있으므로 USD로 역산
+        ex_rate = float(h.exchange_rate) if h.exchange_rate else 1.0
+        if ex_rate > 1:
+            holding_usd = float(h.current_price) * h.quantity
+        else:
+            holding_usd = float(h.current_amount)
         total_portfolio_usd += holding_usd
         if h.symbol == signal.symbol:
-            current_position_value = h.current_amount
+            current_position_value_usd = holding_usd
 
     # 최대 포지션 비율 체크
     max_position_usd = total_portfolio_usd * max_position_pct
-    remaining_position = max_position_usd - float(current_position_value)
+    remaining_position = max_position_usd - current_position_value_usd
 
     if remaining_position <= 0:
         return RiskDecision(

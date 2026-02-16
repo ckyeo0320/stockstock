@@ -1,0 +1,25 @@
+services:
+  stockstock:
+    build: .
+    container_name: stockstock
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./config:/app/config
+    environment:
+      - TZ=America/New_York
+    healthcheck:
+      test: ["CMD", "python", "-c", "import stockstock; print('ok')"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

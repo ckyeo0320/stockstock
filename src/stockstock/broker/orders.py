@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 from stockstock.broker.client import BrokerClient
@@ -24,7 +24,7 @@ class OrderResult:
     quantity: int
     price: Decimal | None  # None for market orders
     pending: bool
-    order_ref: object  # KisOrder 원본 객체
+    order_ref: object = field(repr=False)  # KisOrder 원본 객체
 
 
 def place_buy_order(

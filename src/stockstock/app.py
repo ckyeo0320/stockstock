@@ -230,13 +230,21 @@ class StockStockApp:
             for holding in balance.holdings:
                 if holding.symbol in self.config.trading.symbols:
                     quote = fetch_quote(self._broker, holding.symbol)
+                    current_price = float(quote.price)
+                    purchase_price = float(holding.purchase_price)
                     if check_stop_loss(
                         symbol=holding.symbol,
-                        current_price=float(quote.price),
-                        purchase_price=float(holding.purchase_price),
+                        current_price=current_price,
+                        purchase_price=purchase_price,
                         stop_loss_pct=self.config.trading.stop_loss_pct,
                     ):
-                        self._execute_stop_loss(holding.symbol, holding.orderable_quantity)
+                        qty = holding.orderable_quantity
+                        loss = (purchase_price - current_price) * qty
+                        self._execute_stop_loss(
+                            holding.symbol, qty, current_price,
+                        )
+                        with self._daily_loss_lock:
+                            self._daily_loss_usd += max(0, loss)
 
             # 각 종목에 대해 시그널 생성 및 실행
             for symbol in self.config.trading.symbols:
@@ -374,7 +382,9 @@ class StockStockApp:
                 )
             )
 
-    def _execute_stop_loss(self, symbol: str, quantity: int) -> None:
+    def _execute_stop_loss(
+        self, symbol: str, quantity: int, current_price: float | None = None,
+    ) -> None:
         """손절 매도를 실행합니다."""
         log.warning("executing_stop_loss", symbol=symbol, quantity=quantity)
 
@@ -388,6 +398,7 @@ class StockStockApp:
                     side="SELL",
                     quantity=quantity,
                     order_type="MARKET",
+                    requested_price=current_price,
                     status="SUBMITTED",
                     notes="STOP_LOSS",
                 )

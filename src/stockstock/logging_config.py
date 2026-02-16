@@ -17,7 +17,7 @@ import structlog
 
 # 민감 정보 마스킹 대상 키 패턴
 _SENSITIVE_KEYS = re.compile(
-    r"(key|secret|token|password|authorization|credential)", re.IGNORECASE
+    r"(key|secret|token|password|authorization|credential|account_number)", re.IGNORECASE
 )
 _MASK = "********"
 

@@ -28,15 +28,18 @@ class TokenBucketRateLimiter:
 
     def acquire(self) -> None:
         """토큰 1개를 획득합니다. 토큰이 없으면 대기합니다."""
-        with self._lock:
-            self._refill()
-
-            if self._tokens < 1.0:
-                wait_time = (1.0 - self._tokens) * (self._period / self._rate)
-                time.sleep(wait_time)
+        while True:
+            with self._lock:
                 self._refill()
 
-            self._tokens -= 1.0
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+
+                wait_time = (1.0 - self._tokens) * (self._period / self._rate)
+
+            # lock 해제 후 대기 (다른 스레드 차단 방지)
+            time.sleep(wait_time)
 
     def _refill(self) -> None:
         """경과 시간에 따라 토큰을 리필합니다."""

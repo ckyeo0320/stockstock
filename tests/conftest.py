@@ -5,9 +5,8 @@ import tempfile
 
 import pandas as pd
 import pytest
-from sqlalchemy.orm import Session
 
-from stockstock.db.models import Base, create_db_engine, init_db
+from stockstock.db.models import init_db
 
 
 @pytest.fixture

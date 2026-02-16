@@ -264,3 +264,48 @@ model:
   confidence_threshold: 0.6
   lookback_days: 252
 ```
+
+## 서버 배포 (Oracle Cloud Always Free)
+
+### 사전 준비
+1. [Oracle Cloud](https://www.oracle.com/cloud/free/) 가입 (영구 무료, 카드 등록만 필요)
+2. Compute > Create Instance > **Ampere A1 (ARM)** > Ubuntu 22.04
+3. SSH 키 생성/등록
+
+### 서버 세팅
+```bash
+# 1. SSH 접속
+ssh -i <your-key> ubuntu@<server-ip>
+
+# 2. 시스템 업데이트 + Docker 설치
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y docker.io docker-compose-v2
+sudo usermod -aG docker ubuntu
+sudo systemctl enable docker
+# 재접속
+
+# 3. 프로젝트 클론 + 설정
+git clone <your-repo-url>
+cd stockstock
+cp .env.example .env
+nano .env   # KIS API 키, Telegram 토큰 입력
+
+# 4. 데이터 수집 + 모델 학습 (첫 실행 시)
+docker compose run --rm stockstock python scripts/seed_historical.py
+docker compose run --rm stockstock python scripts/train_model.py
+
+# 5. 실행
+docker compose up -d
+
+# 6. 로그 확인
+docker compose logs -f
+```
+
+### 운영 명령어
+```bash
+docker compose up -d       # 시작
+docker compose down        # 중지
+docker compose restart     # 재시작
+docker compose logs -f     # 로그 실시간
+docker compose pull && docker compose up -d --build  # 업데이트
+```

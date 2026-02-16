@@ -65,7 +65,7 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     # --- Volume Indicators ---
     # Volume ratio (current / 20-day average)
     result["volume_sma_20"] = result["volume"].rolling(window=20).mean()
-    result["volume_ratio"] = result["volume"] / result["volume_sma_20"]
+    result["volume_ratio"] = result["volume"] / result["volume_sma_20"].replace(0, float("nan"))
 
     # --- Derived Features ---
     # 가격 변화율

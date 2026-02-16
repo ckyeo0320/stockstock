@@ -37,11 +37,13 @@ class BrokerClient:
         )
 
         mode_str = "Paper" if self._is_virtual else "Live"
+        acct = broker_config.account_number
+        masked_acct = acct[:2] + "****" + acct[-2:] if len(acct) > 4 else "****"
         log.info(
             "broker_client_initialized",
             mode=mode_str,
             rate_limit=rate,
-            account=broker_config.account_number,
+            account=masked_acct,
         )
 
     def throttle(self) -> None:

@@ -62,13 +62,19 @@ class TradingScheduler:
 
     def pause_trading(self) -> None:
         """트레이딩 작업을 일시중지합니다."""
-        self._scheduler.pause_job("trading_loop")
-        log.info("trading_loop_paused")
+        try:
+            self._scheduler.pause_job("trading_loop")
+            log.info("trading_loop_paused")
+        except Exception:
+            log.warning("trading_loop_pause_failed_job_not_found")
 
     def resume_trading(self) -> None:
         """트레이딩 작업을 재개합니다."""
-        self._scheduler.resume_job("trading_loop")
-        log.info("trading_loop_resumed")
+        try:
+            self._scheduler.resume_job("trading_loop")
+            log.info("trading_loop_resumed")
+        except Exception:
+            log.warning("trading_loop_resume_failed_job_not_found")
 
     def shutdown(self) -> None:
         """스케줄러를 종료합니다."""

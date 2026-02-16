@@ -129,7 +129,22 @@ class SystemState(Base):
 
 def create_db_engine(db_path: str, echo: bool = False):
     """SQLite 엔진을 생성합니다."""
-    engine = create_engine(f"sqlite:///{db_path}", echo=echo)
+    from sqlalchemy import event as sa_event
+
+    engine = create_engine(
+        f"sqlite:///{db_path}",
+        echo=echo,
+        connect_args={"timeout": 30},
+    )
+
+    # WAL 모드 활성화 (동시 읽기/쓰기 지원)
+    @sa_event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
+
     return engine
 
 

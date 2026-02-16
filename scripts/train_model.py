@@ -49,13 +49,15 @@ def main() -> None:
     # 전체 데이터 통합 (다중 종목 학습)
     combined_df = pd.concat(all_dfs, ignore_index=True)
 
-    # 종목별로 피처 계산 후 통합
+    # 종목별로 피처 계산 후 통합 (종목 경계에서 레이블 오염 방지)
     featured_dfs = []
     for symbol in combined_df["symbol"].unique():
         symbol_df = combined_df[combined_df["symbol"] == symbol].copy()
         symbol_df = symbol_df.drop(columns=["symbol"])
         try:
             featured = compute_features(symbol_df)
+            # 종목별로 마지막 FORWARD_DAYS 행 제거 (미래 데이터 없는 구간)
+            featured = featured.iloc[:-5]
             featured["symbol"] = symbol
             featured_dfs.append(featured)
         except ValueError as e:
@@ -71,7 +73,7 @@ def main() -> None:
     model = LGBMTradingModel()
     metrics = model.train(all_featured)
 
-    print(f"\n[*] 학습 결과:")
+    print("\n[*] 학습 결과:")
     print(f"    CV 평균 정확도: {metrics['mean_cv_score']:.4f}")
     print(f"    CV 표준편차: {metrics['std_cv_score']:.4f}")
     print(f"    학습 샘플 수: {metrics['train_samples']}")
