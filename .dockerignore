@@ -1,0 +1,48 @@
+# Secrets
+.env
+.env.*
+secret.json
+kis_auth*.json
+token*.json
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+
+# Testing & Dev
+tests/
+notebooks/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Docs
+*.md
+LICENSE
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (rebuild in container)
+data/*.db
+logs/

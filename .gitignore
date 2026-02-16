@@ -1,0 +1,54 @@
+# Secrets - NEVER commit
+.env
+.env.*
+secret.json
+kis_auth*.json
+token*.json
+*.dat
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# ML models
+models/*.pkl
+models/*.joblib
+models/*.lgb
+models/*.txt
+models/*.meta.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Data
+data/*.db
+data/*.csv

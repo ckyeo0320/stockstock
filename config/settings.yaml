@@ -1,0 +1,29 @@
+trading:
+  mode: paper  # paper | live - 반드시 paper로 충분히 테스트 후 live 전환
+  symbols:
+    - AAPL
+    - MSFT
+    - NVDA
+    - GOOGL
+    - AMZN
+  check_interval_minutes: 60
+  max_position_pct: 0.10      # 단일 종목 최대 포트폴리오 비중 (10%)
+  stop_loss_pct: 0.05         # 손절 기준 (5%)
+  max_daily_loss_usd: 500.0   # 일일 최대 손실 한도 (USD)
+  order_type: MARKET           # MARKET | LIMIT
+
+model:
+  artifact_path: models/lgbm_v1.pkl
+  confidence_threshold: 0.6
+  lookback_days: 252           # 학습 데이터 기간 (거래일 기준 약 1년)
+  retrain_interval_days: 30    # 모델 재학습 주기
+
+telegram:
+  enabled: true
+  daily_summary_hour: 17       # 일일 요약 발송 시간 (ET 기준)
+
+logging:
+  level: INFO
+  file: logs/stockstock.log
+  max_bytes: 10485760          # 10MB
+  backup_count: 5
