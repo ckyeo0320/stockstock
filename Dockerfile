@@ -15,7 +15,8 @@ COPY config/ config/
 # Python 의존성 설치
 RUN pip install --no-cache-dir .
 
-# 모델 디렉토리 복사
+# 스크립트 + 모델 디렉토리 복사
+COPY scripts/ scripts/
 COPY models/ models/
 
 # 보안: 비루트 사용자 생성 + 디렉토리 권한 설정
