@@ -26,15 +26,26 @@ class BrokerClient:
         rate = 5 if self._is_virtual else 20
         self._rate_limiter = TokenBucketRateLimiter(rate=rate)
 
-        # PyKis 초기화
-        self._kis = PyKis(
-            id=broker_config.hts_id,
-            account=broker_config.account_number,
-            appkey=broker_config.app_key.get_secret_value(),
-            secretkey=broker_config.app_secret.get_secret_value(),
-            virtual=self._is_virtual,
-            keep_token=True,
-        )
+        # PyKis 초기화: paper/live에 따라 다른 파라미터 사용
+        app_key = broker_config.app_key.get_secret_value()
+        app_secret = broker_config.app_secret.get_secret_value()
+
+        if self._is_virtual:
+            self._kis = PyKis(
+                virtual_id=broker_config.hts_id,
+                account=broker_config.account_number,
+                virtual_appkey=app_key,
+                virtual_secretkey=app_secret,
+                keep_token=True,
+            )
+        else:
+            self._kis = PyKis(
+                id=broker_config.hts_id,
+                account=broker_config.account_number,
+                appkey=app_key,
+                secretkey=app_secret,
+                keep_token=True,
+            )
 
         mode_str = "Paper" if self._is_virtual else "Live"
         acct = broker_config.account_number
