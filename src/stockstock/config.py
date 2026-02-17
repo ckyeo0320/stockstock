@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,21 @@ import yaml
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+def _resolve_project_root() -> Path:
+    """프로젝트 루트 디렉토리를 결정합니다.
+
+    환경변수 STOCKSTOCK_ROOT가 설정되어 있으면 해당 경로를 사용하고,
+    아니면 현재 작업 디렉토리(CWD)를 사용합니다.
+    Docker에서는 WORKDIR /app이 CWD가 됩니다.
+    """
+    env_root = os.environ.get("STOCKSTOCK_ROOT")
+    if env_root:
+        return Path(env_root)
+    return Path.cwd()
+
+
+PROJECT_ROOT = _resolve_project_root()
 
 
 def _load_yaml_settings() -> dict[str, Any]:
