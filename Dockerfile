@@ -18,12 +18,11 @@ RUN pip install --no-cache-dir .
 # 모델 디렉토리 복사
 COPY models/ models/
 
-# 데이터 디렉토리 생성
-RUN mkdir -p data logs
+# 보안: 비루트 사용자 생성 + 디렉토리 권한 설정
+RUN useradd --create-home appuser \
+    && mkdir -p data logs \
+    && chown -R appuser:appuser /app
 
-# 보안: 비루트 사용자로 실행
-RUN useradd --create-home appuser
-RUN chown -R appuser:appuser /app
 USER appuser
 
 CMD ["python", "-m", "stockstock"]
