@@ -150,6 +150,9 @@ def create_db_engine(db_path: str, echo: bool = False):
 
 def init_db(db_path: str, echo: bool = False) -> sessionmaker[Session]:
     """데이터베이스를 초기화하고 세션 팩토리를 반환합니다."""
+    from pathlib import Path
+
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     engine = create_db_engine(db_path, echo=echo)
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)

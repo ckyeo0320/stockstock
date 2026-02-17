@@ -192,6 +192,11 @@ class LGBMTradingModel:
         model_path = Path(path)
         meta_path = model_path.with_suffix(".meta.json")
 
+        if not model_path.exists():
+            raise FileNotFoundError(f"모델 파일이 없습니다: {model_path}")
+        if not meta_path.exists():
+            raise FileNotFoundError(f"메타데이터 파일이 없습니다: {meta_path}")
+
         self._booster = lgb.Booster(model_file=str(model_path))
         meta = json.loads(meta_path.read_text())
         self._classes = np.array(meta["classes"])

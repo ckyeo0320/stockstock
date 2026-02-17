@@ -102,7 +102,7 @@ class StockStockApp:
         try:
             self._model.load(self.config.model.artifact_path)
             log.info("model_loaded", path=self.config.model.artifact_path)
-        except FileNotFoundError:
+        except Exception:
             log.warning(
                 "model_not_found",
                 path=self.config.model.artifact_path,
