@@ -72,7 +72,20 @@ class TelegramBot:
         # 준비 완료 시그널
         self._ready.set()
 
-        self._loop.run_until_complete(self._app.run_polling(allowed_updates=Update.ALL_TYPES))
+        # run_polling()은 메인 스레드에서만 동작하므로,
+        # 별도 스레드에서는 initialize + start + start_polling을 직접 호출
+        self._loop.run_until_complete(self._start_polling_async())
+
+    async def _start_polling_async(self) -> None:
+        """비메인 스레드에서 안전하게 폴링을 시작합니다."""
+        await self._app.initialize()  # type: ignore[union-attr]
+        await self._app.start()  # type: ignore[union-attr]
+        await self._app.updater.start_polling(  # type: ignore[union-attr]
+            allowed_updates=Update.ALL_TYPES,
+        )
+        # 무한 대기 (스레드가 종료되지 않도록)
+        self._stop_event = asyncio.Event()
+        await self._stop_event.wait()
 
     def _is_authorized(self, update: Update) -> bool:
         """메시지 발신자가 인증된 사용자인지 확인합니다."""
@@ -164,5 +177,15 @@ class TelegramBot:
     def stop(self) -> None:
         """봇을 중지합니다."""
         if self._app and self._loop:
-            asyncio.run_coroutine_threadsafe(self._app.stop(), self._loop)
+            asyncio.run_coroutine_threadsafe(self._stop_async(), self._loop)
         log.info("telegram_bot_stopped")
+
+    async def _stop_async(self) -> None:
+        """비동기 종료 처리."""
+        if self._app:
+            if self._app.updater and self._app.updater.running:
+                await self._app.updater.stop()
+            await self._app.stop()
+            await self._app.shutdown()
+        if hasattr(self, "_stop_event"):
+            self._stop_event.set()
