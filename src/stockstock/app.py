@@ -1,6 +1,7 @@
 """애플리케이션 오케스트레이터.
 
 설정, 브로커, 전략, 스케줄러, 알림을 통합하여 트레이딩 루프를 실행합니다.
+매크로 분석 + 섹터 로테이션 기반 일일 리밸런싱을 수행합니다.
 """
 
 from __future__ import annotations
@@ -27,10 +28,20 @@ from stockstock.db.repository import (
     update_trade_status,
 )
 from stockstock.logging_config import get_logger, setup_logging
+from stockstock.macro.fred_client import FredClient
+from stockstock.macro.macro_score import MacroReport, compute_macro_score
+from stockstock.macro.market_data import fetch_and_cache_market_data
+from stockstock.macro.sector_rotation import (
+    SECTOR_ETFS,
+    SectorRank,
+    compute_sector_rankings,
+    save_sector_snapshot,
+)
 from stockstock.notifications.bot import TelegramBot
 from stockstock.notifications.messages import (
     format_daily_summary,
     format_error_alert,
+    format_macro_report,
     format_portfolio_summary,
     format_risk_alert,
     format_status,
@@ -65,6 +76,7 @@ class StockStockApp:
             "app_initializing",
             mode=self.config.trading.mode,
             symbols=self.config.trading.symbols,
+            macro_enabled=self.config.macro.enabled,
         )
 
         # DB 초기화
@@ -76,6 +88,20 @@ class StockStockApp:
         # ML 모델
         self._model = LGBMTradingModel()
         self._load_model()
+
+        # 매크로 분석 클라이언트
+        self._fred_client: FredClient | None = None
+        if self.config.macro.enabled:
+            fred_key = self.config.fred.api_key.get_secret_value()
+            if fred_key:
+                self._fred_client = FredClient(fred_key, self._session_factory)
+                log.info("fred_client_initialized")
+            else:
+                log.warning("fred_api_key_missing", message="FRED 데이터 수집이 비활성화됩니다.")
+
+        # 최근 매크로 리포트 캐시
+        self._last_macro_report: MacroReport | None = None
+        self._last_sector_rankings: list[SectorRank] = []
 
         # Telegram 봇
         self._bot = TelegramBot(self.config.telegram)
@@ -117,6 +143,7 @@ class StockStockApp:
         self._bot.register_callback("portfolio", self._on_portfolio)
         self._bot.register_callback("pnl", self._on_pnl)
         self._bot.register_callback("trades", self._on_trades)
+        self._bot.register_callback("macro", self._on_macro)
 
     def _on_start(self) -> None:
         self._scheduler.resume_trading()
@@ -132,12 +159,17 @@ class StockStockApp:
         with self._session_factory() as session:
             is_active = get_system_state(session, "trading_active") != "false"
             last_run = get_system_state(session, "last_run_time")
+        # 매크로 활성 시 섹터 ETF 목록, 아니면 개별 종목 목록
+        if self.config.macro.enabled:
+            symbols = self.config.macro.sector_etfs
+        else:
+            symbols = self.config.trading.symbols
         return format_status(
             mode=self.config.trading.mode,
             is_active=is_active,
             last_run=last_run,
             next_run=self._scheduler.get_next_run_time(),
-            symbols=self.config.trading.symbols,
+            symbols=symbols,
         )
 
     def _on_portfolio(self) -> str:
@@ -192,6 +224,175 @@ class StockStockApp:
             )
         return "\n".join(lines)
 
+    def _on_macro(self) -> str:
+        """최근 매크로 분석 결과를 반환합니다."""
+        if not self.config.macro.enabled:
+            return "매크로 분석이 비활성화 상태입니다."
+        if self._last_macro_report is None:
+            return "매크로 분석 데이터가 아직 없습니다. 다음 트레이딩 루프 실행 후 확인하세요."
+        today = now_et().strftime("%Y-%m-%d")
+        return format_macro_report(
+            date_str=today,
+            report=self._last_macro_report,
+            rankings=self._last_sector_rankings,
+        )
+
+    def _collect_macro_data(self) -> None:
+        """FRED + Yahoo Finance 매크로 데이터를 수집하고 DB에 캐싱합니다."""
+        log.info("macro_data_collection_started")
+
+        # FRED 데이터 수집
+        if self._fred_client:
+            self._fred_client.fetch_and_cache(self.config.macro.fred_series)
+
+        # Yahoo Finance 시장 데이터 수집 (VIX, 원자재, 환율)
+        commodity_tickers = {t: t for t in self.config.macro.commodities}
+        commodity_tickers["vix"] = "^VIX"
+        fetch_and_cache_market_data(self._session_factory, commodity_tickers)
+
+        log.info("macro_data_collection_completed")
+
+    def _run_macro_analysis(self) -> tuple[MacroReport, list[SectorRank]]:
+        """매크로 점수 계산 + 섹터 순위 산출."""
+        # 매크로 점수 계산
+        report = compute_macro_score(self._session_factory)
+
+        # 섹터 ETF → 한국어명 매핑 (config의 ETF 목록 기준)
+        sector_etf_map = {
+            sector: ticker
+            for sector, ticker in SECTOR_ETFS.items()
+            if ticker in self.config.macro.sector_etfs
+        }
+
+        # 섹터 순위 산출
+        rankings = compute_sector_rankings(
+            macro_signals=report.macro_signals,
+            sector_etfs=sector_etf_map,
+            top_n=self.config.macro.top_sectors,
+        )
+
+        # DB 저장
+        today = now_et().strftime("%Y-%m-%d")
+        save_sector_snapshot(self._session_factory, rankings, today)
+
+        # 캐시 업데이트
+        self._last_macro_report = report
+        self._last_sector_rankings = rankings
+
+        log.info(
+            "macro_analysis_completed",
+            score=report.score,
+            label=report.label,
+            top_sectors=[r.etf_ticker for r in rankings[:self.config.macro.top_sectors]],
+        )
+        return report, rankings
+
+    def _compute_rebalance_actions(
+        self, balance: AccountBalance, top_etfs: list[str],
+    ) -> list[dict]:
+        """리밸런싱 액션(매수/매도)을 계산합니다.
+
+        Returns:
+            [{"symbol": "XLK", "action": "BUY"|"SELL", "quantity": int, "price": float}, ...]
+        """
+        actions: list[dict] = []
+
+        # 현재 보유 ETF 목록
+        held_symbols = {h.symbol: h for h in balance.holdings}
+        all_sector_etfs = set(self.config.macro.sector_etfs)
+
+        # 1. 보유 중이지만 상위 섹터에서 빠진 ETF → 매도
+        for symbol, holding in held_symbols.items():
+            if symbol in all_sector_etfs and symbol not in top_etfs:
+                qty = holding.orderable_quantity
+                if qty > 0:
+                    quote = fetch_quote(self._broker, symbol)
+                    actions.append({
+                        "symbol": symbol,
+                        "action": "SELL",
+                        "quantity": qty,
+                        "price": float(quote.price),
+                    })
+
+        # 2. 상위 섹터 ETF 중 미보유 → 매수 (균등 배분)
+        total_value = float(balance.total_value_krw)
+        cash = float(balance.cash_usd or 0)
+        # 매도 후 예상 현금 추가
+        sell_proceeds = sum(
+            a["price"] * a["quantity"] for a in actions if a["action"] == "SELL"
+        )
+        available_cash = cash + sell_proceeds
+
+        # 상위 N개 ETF에 균등 배분
+        target_per_etf = (total_value * self.config.trading.max_position_pct)
+
+        for symbol in top_etfs:
+            if symbol in held_symbols:
+                # 이미 보유 중이면 추가 매수 없음 (비중 조절은 향후 개선)
+                continue
+            if available_cash < 100:
+                break
+
+            quote = fetch_quote(self._broker, symbol)
+            price = float(quote.price)
+            if price <= 0:
+                continue
+
+            buy_amount = min(target_per_etf, available_cash)
+            qty = int(buy_amount / price)
+            if qty > 0:
+                actions.append({
+                    "symbol": symbol,
+                    "action": "BUY",
+                    "quantity": qty,
+                    "price": price,
+                })
+                available_cash -= price * qty
+
+        return actions
+
+    def _execute_rebalance(self, actions: list[dict]) -> list[str]:
+        """리밸런싱 주문을 실행합니다. 매도 먼저, 매수는 그 다음."""
+        summaries: list[str] = []
+
+        # 매도 먼저
+        sell_actions = [a for a in actions if a["action"] == "SELL"]
+        buy_actions = [a for a in actions if a["action"] == "BUY"]
+
+        for action in sell_actions + buy_actions:
+            symbol = action["symbol"]
+            qty = action["quantity"]
+            price = action["price"]
+            side = action["action"]
+
+            try:
+                if side == "SELL":
+                    place_sell_order(self._broker, symbol, qty)
+                else:
+                    place_buy_order(self._broker, symbol, qty)
+
+                with self._session_factory() as session:
+                    log_trade(
+                        session,
+                        symbol=symbol,
+                        side=side,
+                        quantity=qty,
+                        order_type="MARKET",
+                        requested_price=price,
+                        status="SUBMITTED",
+                        notes="REBALANCE",
+                    )
+
+                emoji = "🔴" if side == "SELL" else "🟢"
+                summaries.append(f"{emoji} {side} {symbol} {qty}주 @ ${price:.2f}")
+                log.info("rebalance_order", side=side, symbol=symbol, quantity=qty)
+
+            except Exception as e:
+                log.error("rebalance_order_failed", symbol=symbol, side=side, error=str(e))
+                summaries.append(f"⚠️ {side} {symbol} 실패")
+
+        return summaries
+
     def _reset_daily_loss_if_needed(self) -> None:
         """날짜가 바뀌면 일일 손실을 초기화합니다."""
         today = now_et().strftime("%Y-%m-%d")
@@ -201,7 +402,7 @@ class StockStockApp:
                 self._daily_loss_date = today
 
     def _trading_loop(self) -> None:
-        """1시간 간격으로 실행되는 트레이딩 루프."""
+        """트레이딩 루프 (매크로 활성 시 섹터 로테이션, 아니면 기존 개별 종목 처리)."""
         try:
             # 마켓 오픈 체크
             if not is_market_open():
@@ -214,47 +415,12 @@ class StockStockApp:
                     log.info("trading_paused_skipping")
                     return
 
-            # 모델 로드 확인
-            if not self._model.is_loaded:
-                log.warning("model_not_loaded_skipping")
-                return
-
             self._reset_daily_loss_if_needed()
 
-            log.info("trading_loop_started", symbols=self.config.trading.symbols)
-
-            # 잔고 조회
-            balance = fetch_balance(self._broker)
-
-            # 기존 보유 종목 손절 체크
-            for holding in balance.holdings:
-                if holding.symbol in self.config.trading.symbols:
-                    quote = fetch_quote(self._broker, holding.symbol)
-                    current_price = float(quote.price)
-                    purchase_price = float(holding.purchase_price)
-                    if check_stop_loss(
-                        symbol=holding.symbol,
-                        current_price=current_price,
-                        purchase_price=purchase_price,
-                        stop_loss_pct=self.config.trading.stop_loss_pct,
-                    ):
-                        qty = holding.orderable_quantity
-                        loss = (purchase_price - current_price) * qty
-                        self._execute_stop_loss(
-                            holding.symbol, qty, current_price,
-                        )
-                        with self._daily_loss_lock:
-                            self._daily_loss_usd += max(0, loss)
-
-            # 각 종목에 대해 시그널 생성 및 실행
-            for symbol in self.config.trading.symbols:
-                try:
-                    self._process_symbol(symbol, balance)
-                except Exception as e:
-                    log.error("symbol_processing_error", symbol=symbol, error=str(e))
-                    self._bot.send_message(
-                        format_error_alert("종목 처리 오류", f"{symbol} 처리 중 오류 발생")
-                    )
+            if self.config.macro.enabled:
+                self._macro_trading_loop()
+            else:
+                self._symbol_trading_loop()
 
             # 마지막 실행 시간 기록
             with self._session_factory() as session:
@@ -267,6 +433,105 @@ class StockStockApp:
             self._bot.send_message(
                 format_error_alert("트레이딩 루프 오류", "내부 오류 발생. 로그를 확인하세요.")
             )
+
+    def _macro_trading_loop(self) -> None:
+        """매크로 분석 + 섹터 ETF 로테이션 기반 트레이딩."""
+        log.info("macro_trading_loop_started")
+
+        # 1. 매크로 데이터 수집
+        self._collect_macro_data()
+
+        # 2. 매크로 분석 + 섹터 순위 산출
+        report, rankings = self._run_macro_analysis()
+
+        # 3. 상위 N개 섹터 ETF 선정
+        top_n = self.config.macro.top_sectors
+        top_etfs = [r.etf_ticker for r in rankings[:top_n]]
+        log.info("top_sector_etfs", etfs=top_etfs, equity_pct=report.equity_pct)
+
+        # 4. 잔고 조회
+        balance = fetch_balance(self._broker)
+
+        # 5. 보유 ETF 손절 체크
+        all_sector_etfs = set(self.config.macro.sector_etfs)
+        for holding in balance.holdings:
+            if holding.symbol in all_sector_etfs:
+                quote = fetch_quote(self._broker, holding.symbol)
+                current_price = float(quote.price)
+                purchase_price = float(holding.purchase_price)
+                if check_stop_loss(
+                    symbol=holding.symbol,
+                    current_price=current_price,
+                    purchase_price=purchase_price,
+                    stop_loss_pct=self.config.trading.stop_loss_pct,
+                ):
+                    qty = holding.orderable_quantity
+                    loss = (purchase_price - current_price) * qty
+                    self._execute_stop_loss(holding.symbol, qty, current_price)
+                    with self._daily_loss_lock:
+                        self._daily_loss_usd += max(0, loss)
+
+        # 6. 리밸런싱 (잔고 다시 조회 — 손절 후 변동 반영)
+        balance = fetch_balance(self._broker)
+        actions = self._compute_rebalance_actions(balance, top_etfs)
+
+        rebalance_summaries: list[str] = []
+        if actions:
+            rebalance_summaries = self._execute_rebalance(actions)
+        else:
+            log.info("no_rebalance_needed")
+
+        # 7. 매크로 리포트 Telegram 전송
+        today = now_et().strftime("%Y-%m-%d")
+        msg = format_macro_report(
+            date_str=today,
+            report=report,
+            rankings=rankings,
+            rebalance_actions=rebalance_summaries if rebalance_summaries else None,
+        )
+        self._bot.send_message(msg)
+
+        log.info("macro_trading_loop_completed", rebalance_count=len(actions))
+
+    def _symbol_trading_loop(self) -> None:
+        """기존 개별 종목 기반 트레이딩 루프 (매크로 비활성 시)."""
+        # 모델 로드 확인
+        if not self._model.is_loaded:
+            log.warning("model_not_loaded_skipping")
+            return
+
+        log.info("symbol_trading_loop_started", symbols=self.config.trading.symbols)
+
+        # 잔고 조회
+        balance = fetch_balance(self._broker)
+
+        # 기존 보유 종목 손절 체크
+        for holding in balance.holdings:
+            if holding.symbol in self.config.trading.symbols:
+                quote = fetch_quote(self._broker, holding.symbol)
+                current_price = float(quote.price)
+                purchase_price = float(holding.purchase_price)
+                if check_stop_loss(
+                    symbol=holding.symbol,
+                    current_price=current_price,
+                    purchase_price=purchase_price,
+                    stop_loss_pct=self.config.trading.stop_loss_pct,
+                ):
+                    qty = holding.orderable_quantity
+                    loss = (purchase_price - current_price) * qty
+                    self._execute_stop_loss(holding.symbol, qty, current_price)
+                    with self._daily_loss_lock:
+                        self._daily_loss_usd += max(0, loss)
+
+        # 각 종목에 대해 시그널 생성 및 실행
+        for symbol in self.config.trading.symbols:
+            try:
+                self._process_symbol(symbol, balance)
+            except Exception as e:
+                log.error("symbol_processing_error", symbol=symbol, error=str(e))
+                self._bot.send_message(
+                    format_error_alert("종목 처리 오류", f"{symbol} 처리 중 오류 발생")
+                )
 
     def _process_symbol(self, symbol: str, balance: AccountBalance) -> None:
         """개별 종목을 처리합니다."""
@@ -478,12 +743,22 @@ class StockStockApp:
 
         # 시작 알림
         mode_str = "모의투자" if self.config.is_paper_trading else "실전투자"
-        self._bot.send_message(
-            f"🚀 StockStock 시작됨\n"
-            f"모드: {mode_str}\n"
-            f"추적 종목: {', '.join(self.config.trading.symbols)}\n"
-            f"체크 간격: {self.config.trading.check_interval_minutes}분"
-        )
+        if self.config.macro.enabled:
+            etfs = ", ".join(self.config.macro.sector_etfs)
+            self._bot.send_message(
+                f"🚀 StockStock 시작됨 (섹터 로테이션)\n"
+                f"모드: {mode_str}\n"
+                f"섹터 ETF: {etfs}\n"
+                f"상위 {self.config.macro.top_sectors}개 섹터 투자\n"
+                f"리밸런싱: {self.config.macro.rebalance_frequency}"
+            )
+        else:
+            self._bot.send_message(
+                f"🚀 StockStock 시작됨\n"
+                f"모드: {mode_str}\n"
+                f"추적 종목: {', '.join(self.config.trading.symbols)}\n"
+                f"체크 간격: {self.config.trading.check_interval_minutes}분"
+            )
 
         # 스케줄러 시작
         self._scheduler.start()

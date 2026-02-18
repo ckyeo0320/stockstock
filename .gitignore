@@ -4,6 +4,7 @@
 # Secrets - NEVER commit
 .env
 .env.*
+!.env.example
 secret.json
 kis_auth*.json
 token*.json

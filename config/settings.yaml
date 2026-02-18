@@ -7,10 +7,37 @@ trading:
         - GOOGL
         - AMZN
     check_interval_minutes: 60
-    max_position_pct: 0.10 # 단일 종목 최대 포트폴리오 비중 (10%)
-    stop_loss_pct: 0.05 # 손절 기준 (5%)
+    max_position_pct: 0.35 # 단일 ETF 최대 비중 (1/3)
+    stop_loss_pct: 0.08 # ETF 손절 기준 (8%)
     max_daily_loss_usd: 500.0 # 일일 최대 손실 한도 (USD)
     order_type: MARKET # MARKET | LIMIT
+
+macro:
+    enabled: true
+    fred_series:
+        - T10Y2Y
+        - BAMLH0A0HYM2
+        - FEDFUNDS
+        - CPIAUCSL
+        - UNRATE
+    sector_etfs:
+        - XLK
+        - XLV
+        - XLF
+        - XLE
+        - XLP
+        - XLY
+        - XLI
+        - XLU
+        - SOXX
+    benchmark: SPY
+    commodities:
+        - GC=F
+        - CL=F
+        - DX-Y.NYB
+        - HG=F
+    rebalance_frequency: daily # daily | weekly
+    top_sectors: 3 # 상위 N개 섹터에 투자
 
 model:
     artifact_path: models/lgbm_v1.pkl

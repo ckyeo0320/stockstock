@@ -117,6 +117,45 @@ class RiskEvent(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 
+class MacroData(Base):
+    """거시경제 데이터 캐시."""
+
+    __tablename__ = "macro_data"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    series_id = Column(String(50), nullable=False)  # FRED series ID 또는 Yahoo 티커
+    dt = Column(String(10), nullable=False)  # YYYY-MM-DD
+    value = Column(Float, nullable=False)
+    source = Column(String(20), nullable=False)  # 'fred', 'yahoo'
+    fetched_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        UniqueConstraint("series_id", "dt", name="uq_macro_series_dt"),
+        Index("idx_macro_series_dt", "series_id", "dt"),
+    )
+
+
+class SectorSnapshot(Base):
+    """섹터 분석 스냅샷."""
+
+    __tablename__ = "sector_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    snapshot_date = Column(String(10), nullable=False)
+    sector = Column(String(30), nullable=False)
+    etf_ticker = Column(String(10), nullable=False)
+    momentum_20d = Column(Float, nullable=True)
+    momentum_60d = Column(Float, nullable=True)
+    relative_strength = Column(Float, nullable=True)  # vs SPY
+    macro_sector_score = Column(Float, nullable=True)
+    rank = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("snapshot_date", "sector", name="uq_sector_snapshot_date"),
+        Index("idx_sector_snapshot_date", "snapshot_date"),
+    )
+
+
 class SystemState(Base):
     """시스템 상태 키-밸류 저장소."""
 

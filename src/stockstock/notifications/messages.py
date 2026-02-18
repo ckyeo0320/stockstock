@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from stockstock.strategy.signals import TradingSignal
 from stockstock.utils import format_pct, format_usd
+
+if TYPE_CHECKING:
+    from stockstock.macro.macro_score import MacroReport
+    from stockstock.macro.sector_rotation import SectorRank
 
 
 def format_trade_alert(
@@ -113,6 +119,89 @@ def format_risk_alert(event_type: str, symbol: str | None, details: str) -> str:
     if symbol:
         lines.append(f"종목: {symbol}")
     lines.append(f"내용: {details}")
+    return "\n".join(lines)
+
+
+def format_macro_report(
+    date_str: str,
+    report: MacroReport,
+    rankings: list[SectorRank],
+    rebalance_actions: list[str] | None = None,
+) -> str:
+    """거시경제 분석 리포트 메시지를 생성합니다."""
+    # 점수 부호
+    sign = "+" if report.score >= 0 else ""
+
+    lines = [
+        f"📊 거시경제 리포트 ({date_str})",
+        "",
+        f"■ 매크로 점수: {sign}{report.score:.2f} ({report.label})",
+        f"  → 주식 비중: {report.equity_pct}%",
+    ]
+
+    # 금리 환경
+    lines.append("")
+    lines.append("■ 금리 환경")
+    if report.yield_spread is not None:
+        arrow = "▲" if (report.yield_spread_change or 0) >= 0 else "▼"
+        change_str = f"{abs(report.yield_spread_change or 0):.2f}"
+        lines.append(f"  2-10Y 스프레드: {report.yield_spread:.2f}% ({arrow}{change_str})")
+    if report.high_yield_spread is not None:
+        lines.append(f"  하이일드 스프레드: {report.high_yield_spread:.2f}%")
+    if report.fed_funds_rate is not None:
+        lines.append(f"  연방기금금리: {report.fed_funds_rate:.2f}%")
+
+    # 변동성
+    if report.vix is not None:
+        lines.append("")
+        lines.append("■ 시장 변동성")
+        pctile_str = (
+            f" (60일 백분위: {report.vix_percentile:.0f}%)"
+            if report.vix_percentile else ""
+        )
+        lines.append(f"  VIX: {report.vix:.1f}{pctile_str}")
+
+    # 원자재/환율
+    has_commodity = any([
+        report.copper_gold_ratio_change, report.dxy_change, report.oil_price,
+    ])
+    if has_commodity:
+        lines.append("")
+        lines.append("■ 원자재/환율")
+        if report.copper_gold_ratio_change is not None:
+            arrow = "▲" if report.copper_gold_ratio_change >= 0 else "▼"
+            signal = "경기 확장 신호" if report.copper_gold_ratio_change > 0 else "경기 수축 신호"
+            lines.append(
+                f"  구리/금 비율: {arrow}{abs(report.copper_gold_ratio_change):.1%} ({signal})"
+            )
+        if report.dxy_change is not None:
+            arrow = "▲" if report.dxy_change >= 0 else "▼"
+            lines.append(f"  달러 인덱스: {arrow}{abs(report.dxy_change):.1%} (20일)")
+        if report.oil_price is not None:
+            lines.append(f"  원유 WTI: ${report.oil_price:.2f}")
+
+    # 섹터 순위
+    if rankings:
+        lines.append("")
+        lines.append(f"■ 섹터 순위 (상위 {min(3, len(rankings))} → 매수)")
+        for r in rankings:
+            marker = "  " if r.rank <= 3 else "  "
+            mom_str = format_pct(r.momentum_20d * 100)
+            rs_str = f"RS {r.relative_strength:.2f}"
+            lines.append(
+                f"{marker}{r.rank}. {r.etf_ticker} ({r.sector})"
+                f" {mom_str} | {rs_str}"
+            )
+            if r.rank == 3 and len(rankings) > 3:
+                lines.append("  ---")
+
+    # 리밸런싱
+    if rebalance_actions:
+        lines.append("")
+        lines.append("■ 리밸런싱")
+        for action in rebalance_actions:
+            lines.append(f"  {action}")
+
     return "\n".join(lines)
 
 
