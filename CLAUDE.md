@@ -57,8 +57,8 @@
 - [ ] Telegram 봇 생성 (@BotFather) + Chat ID 확인
 - [ ] FRED API Key 발급 (https://fred.stlouisfed.org/docs/api/api_key.html)
 - [ ] `.env` 파일 작성 (`.env.example` 참고, `FRED_API_KEY` 포함)
-- [ ] `python scripts/seed_historical.py` 실행 (과거 데이터 수집)
-- [ ] `python scripts/train_model.py` 실행 (모델 학습)
+- [ ] **매크로 모드 (기본)**: `python scripts/train_model.py` 실행 (FRED + yfinance로 자체 수집 + 학습)
+- [ ] **개별 종목 모드**: `python scripts/seed_historical.py` → `python scripts/train_model.py` 순서 실행
 - [ ] Paper Trading 환경에서 수일간 검증
 - [ ] Live 전환 전 백테스트 결과 확인 (SPY 대비 초과수익 검증)
 
@@ -659,10 +659,10 @@ dependencies = [
 4. ~~**macro/macro_score.py** — 종합 매크로 점수 계산 엔진~~ **완료**
 5. ~~**db/models.py** — 새 테이블 2개 추가~~ **완료**
 6. ~~**strategy/features.py** — 매크로 피처 통합 (기존 24개 + 신규 10개)~~ **완료**
-7. **strategy/model.py** — ETF 대상 모델 재학습 (TODO)
+7. ~~**strategy/model.py** — include_macro 지원, 메타데이터에 피처 목록 저장/복원~~ **완료**
 8. ~~**app.py** — 트레이딩 루프 변경 (1일 1회 리밸런싱 + 섹터 로테이션)~~ **완료**
 9. ~~**config.py** — MacroConfig 추가, TradingConfig 수정~~ **완료**
 10. ~~**settings.yaml** — macro 섹션 추가, trading 섹션 수정~~ **완료**
-11. **strategy/backtest.py** — SPY 벤치마크 비교 추가 (TODO)
-12. **scripts/train_model.py** — 매크로 피처 + ETF 대상 재학습 (TODO)
+11. ~~**strategy/backtest.py** — SPY 벤치마크 비교 + alpha 계산~~ **완료**
+12. ~~**scripts/train_model.py** — 듀얼 모드 학습 (개별 종목 vs 매크로 섹터 ETF)~~ **완료**
 13. ~~**테스트** — 각 모듈별 단위 테스트 추가~~ **완료** (55개)
