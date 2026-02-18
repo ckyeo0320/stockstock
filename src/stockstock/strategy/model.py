@@ -39,11 +39,12 @@ class LGBMTradingModel:
 
     VERSION = "lgbm_v1"
 
-    def __init__(self) -> None:
+    def __init__(self, include_macro: bool = False) -> None:
         self._model: lgb.LGBMClassifier | None = None
         self._booster: lgb.Booster | None = None  # 로드된 모델용
         self._classes: np.ndarray | None = None  # 로드된 모델의 클래스 레이블
-        self._feature_cols = get_feature_columns()
+        self._include_macro = include_macro
+        self._feature_cols = get_feature_columns(include_macro=include_macro)
 
     def _create_labels(self, df: pd.DataFrame) -> pd.Series:
         """향후 N일 수익률 기반 레이블을 생성합니다.
@@ -183,6 +184,8 @@ class LGBMTradingModel:
             "version": self.VERSION,
             "classes": list(self._model.classes_),
             "n_estimators": self._model.n_estimators,
+            "include_macro": self._include_macro,
+            "feature_columns": self._feature_cols,
         }
         meta_path.write_text(json.dumps(meta))
         log.info("model_saved", path=path)
@@ -201,7 +204,15 @@ class LGBMTradingModel:
         meta = json.loads(meta_path.read_text())
         self._classes = np.array(meta["classes"])
 
-        log.info("model_loaded", path=path, version=meta.get("version"))
+        # 저장된 피처 목록 복원 (하위 호환)
+        if "feature_columns" in meta:
+            self._feature_cols = meta["feature_columns"]
+            self._include_macro = meta.get("include_macro", False)
+
+        log.info(
+            "model_loaded", path=path, version=meta.get("version"),
+            include_macro=self._include_macro,
+        )
 
     @property
     def is_loaded(self) -> bool:

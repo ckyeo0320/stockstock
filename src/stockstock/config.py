@@ -59,6 +59,14 @@ class BrokerConfig(BaseSettings):
         return v
 
 
+class FredApiConfig(BaseSettings):
+    """FRED API 인증 설정."""
+
+    model_config = SettingsConfigDict(env_prefix="FRED_", env_file=".env", extra="ignore")
+
+    api_key: SecretStr = SecretStr("")
+
+
 class TelegramConfig(BaseSettings):
     """Telegram 봇 설정."""
 
@@ -132,6 +140,31 @@ class ModelConfig(BaseSettings):
     retrain_interval_days: int = 30
 
 
+class MacroConfig(BaseSettings):
+    """거시경제 데이터 설정."""
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+    enabled: bool = True
+    fred_series: list[str] = [
+        "T10Y2Y", "BAMLH0A0HYM2", "FEDFUNDS", "CPIAUCSL", "UNRATE",
+    ]
+    sector_etfs: list[str] = [
+        "XLK", "XLV", "XLF", "XLE", "XLP", "XLY", "XLI", "XLU", "SOXX",
+    ]
+    benchmark: str = "SPY"
+    commodities: list[str] = ["GC=F", "CL=F", "DX-Y.NYB", "HG=F"]
+    rebalance_frequency: str = "daily"
+    top_sectors: int = 3
+
+    @field_validator("rebalance_frequency")
+    @classmethod
+    def validate_rebalance_frequency(cls, v: str) -> str:
+        if v not in ("daily", "weekly"):
+            raise ValueError("rebalance_frequency는 'daily' 또는 'weekly'이어야 합니다")
+        return v
+
+
 class LoggingConfig(BaseSettings):
     """로깅 설정."""
 
@@ -156,6 +189,10 @@ class AppConfig:
 
         # Telegram: .env 시크릿은 자동 로드, yaml 설정은 생성자에 전달
         self.telegram = TelegramConfig(**yaml_settings.get("telegram", {}))  # type: ignore[call-arg]
+
+        # 매크로 설정
+        self.macro = MacroConfig(**yaml_settings.get("macro", {}))
+        self.fred = FredApiConfig()  # type: ignore[call-arg]
 
     @property
     def is_paper_trading(self) -> bool:

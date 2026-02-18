@@ -67,6 +67,7 @@ class TelegramBot:
         self._app.add_handler(CommandHandler("pnl", self._cmd_pnl))
         self._app.add_handler(CommandHandler("trades", self._cmd_trades))
         self._app.add_handler(CommandHandler("signals", self._cmd_signals))
+        self._app.add_handler(CommandHandler("macro", self._cmd_macro))
         self._app.add_handler(CommandHandler("ping", self._cmd_ping))
 
         # 준비 완료 시그널
@@ -153,6 +154,12 @@ class TelegramBot:
         if not self._is_authorized(update):
             return
         msg = await self._run_callback("signals") or "시그널 정보를 가져올 수 없습니다."
+        await update.message.reply_text(msg)  # type: ignore[union-attr]
+
+    async def _cmd_macro(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self._is_authorized(update):
+            return
+        msg = await self._run_callback("macro") or "매크로 분석 정보를 가져올 수 없습니다."
         await update.message.reply_text(msg)  # type: ignore[union-attr]
 
     async def _cmd_ping(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

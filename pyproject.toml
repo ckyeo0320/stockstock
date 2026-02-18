@@ -35,6 +35,10 @@ dependencies = [
 
     # Logging
     "structlog>=24.0",
+
+    # Macro economic data
+    "fredapi>=0.5.2",
+    "yfinance>=0.2.31",
 ]
 
 [project.optional-dependencies]
