@@ -40,11 +40,16 @@ class AccountBalance:
     cash_usd: Decimal | None = None
 
 
-def fetch_balance(client: BrokerClient) -> AccountBalance:
-    """계좌 잔고와 보유 종목을 조회합니다."""
+def fetch_balance(client: BrokerClient, country: str = "US") -> AccountBalance:
+    """계좌 잔고와 보유 종목을 조회합니다.
+
+    Args:
+        client: BrokerClient 인스턴스
+        country: 국가 코드 (US, KR, HK, JP, VN, CN)
+    """
     account = client.account()
     client.throttle()
-    balance = account.balance()
+    balance = account.balance(country=country)
 
     holdings = []
     for stock in balance.stocks:
