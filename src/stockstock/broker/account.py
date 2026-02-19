@@ -3,12 +3,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from stockstock.broker.client import BrokerClient
 from stockstock.logging_config import get_logger
 
 log = get_logger(__name__)
+
+
+def _safe_decimal(value: object, default: Decimal = Decimal("0")) -> Decimal:
+    """API 응답 값을 안전하게 Decimal로 변환합니다."""
+    if value is None:
+        return default
+    s = str(value).strip()
+    if not s or s == "None":
+        return default
+    try:
+        return Decimal(s)
+    except InvalidOperation:
+        log.warning("decimal_conversion_failed", raw_value=repr(value))
+        return default
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    """API 응답 값을 안전하게 float로 변환합니다."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        log.warning("float_conversion_failed", raw_value=repr(value))
+        return default
 
 
 @dataclass
@@ -57,15 +82,15 @@ def fetch_balance(client: BrokerClient, country: str = "US") -> AccountBalance:
             Holding(
                 symbol=stock.symbol,
                 market=str(getattr(stock, "market", "")),
-                quantity=int(stock.qty),
-                orderable_quantity=int(stock.orderable),
-                purchase_price=Decimal(str(stock.purchase_price)),
-                current_price=Decimal(str(stock.current_price)),
-                purchase_amount=Decimal(str(stock.purchase_amount)),
-                current_amount=Decimal(str(stock.current_amount)),
-                profit=Decimal(str(stock.profit)),
-                profit_rate=float(stock.profit_rate),
-                exchange_rate=Decimal(str(getattr(stock, "exchange_rate", 0))),
+                quantity=int(getattr(stock, "qty", 0) or 0),
+                orderable_quantity=int(getattr(stock, "orderable", 0) or 0),
+                purchase_price=_safe_decimal(stock.purchase_price),
+                current_price=_safe_decimal(stock.current_price),
+                purchase_amount=_safe_decimal(stock.purchase_amount),
+                current_amount=_safe_decimal(stock.current_amount),
+                profit=_safe_decimal(stock.profit),
+                profit_rate=_safe_float(stock.profit_rate),
+                exchange_rate=_safe_decimal(getattr(stock, "exchange_rate", 0)),
             )
         )
 
@@ -74,13 +99,13 @@ def fetch_balance(client: BrokerClient, country: str = "US") -> AccountBalance:
     if hasattr(balance, "deposits"):
         usd_deposit = balance.deposits.get("USD")
         if usd_deposit is not None:
-            cash_usd = Decimal(str(usd_deposit))
+            cash_usd = _safe_decimal(usd_deposit)
 
     result = AccountBalance(
-        total_value_krw=Decimal(str(balance.current_amount)),
-        purchase_amount_krw=Decimal(str(balance.purchase_amount)),
-        total_profit_krw=Decimal(str(balance.profit)),
-        profit_rate=float(balance.profit_rate),
+        total_value_krw=_safe_decimal(balance.current_amount),
+        purchase_amount_krw=_safe_decimal(balance.purchase_amount),
+        total_profit_krw=_safe_decimal(balance.profit),
+        profit_rate=_safe_float(balance.profit_rate),
         holdings=holdings,
         cash_usd=cash_usd,
     )
