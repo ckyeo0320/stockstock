@@ -103,6 +103,8 @@ def run_backtest(
     initial_capital: float = 100_000.0,
     include_macro: bool = False,
     benchmark_df: pd.DataFrame | None = None,
+    macro_report: object | None = None,
+    sector_rank: object | None = None,
 ) -> BacktestResult:
     """Walk-forward 백테스트를 실행합니다.
 
@@ -114,8 +116,12 @@ def run_backtest(
         initial_capital: 초기 자본금 (USD)
         include_macro: 매크로 피처 포함 여부
         benchmark_df: 벤치마크(SPY) OHLCV DataFrame (None이면 비교 안 함)
+        macro_report: MacroReport 객체 (include_macro=True 시 필요)
+        sector_rank: SectorRank 객체 (include_macro=True 시 선택)
     """
-    featured_df = compute_features(df)
+    featured_df = compute_features(
+        df, macro_report=macro_report, sector_rank=sector_rank,
+    )
 
     capital = initial_capital
     position = 0  # 보유 수량

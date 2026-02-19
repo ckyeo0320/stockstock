@@ -137,7 +137,7 @@ def _train_macro_mode(config: AppConfig, session_factory) -> None:
     print(f"\n[*] 모델 저장됨: {config.model.artifact_path}")
 
     # 6. 백테스트 (첫 번째 ETF + SPY 벤치마크)
-    _run_etf_backtest(config, all_dfs)
+    _run_etf_backtest(config, all_dfs, macro_report, ranking_map)
 
 
 def _train_and_evaluate(
@@ -195,7 +195,9 @@ def _train_and_evaluate(
         print(f"    {first_symbol}: 백테스트에 데이터 부족 ({len(first_df)}행)")
 
 
-def _run_etf_backtest(config: AppConfig, featured_dfs: list) -> None:
+def _run_etf_backtest(
+    config: AppConfig, featured_dfs: list, macro_report=None, ranking_map=None,
+) -> None:
     """ETF 백테스트 + SPY 벤치마크 비교."""
     from stockstock.macro.market_data import fetch_etf_ohlcv
 
@@ -211,16 +213,18 @@ def _run_etf_backtest(config: AppConfig, featured_dfs: list) -> None:
     if featured_dfs:
         first = featured_dfs[0]
         symbol = first["symbol"].iloc[0]
-        df_for_bt = first.drop(columns=["symbol"]).reset_index(drop=True)
 
         # 원본 OHLCV가 필요하므로 다시 수집
         raw_df = fetch_etf_ohlcv(symbol, period="3y")
         if len(raw_df) >= 200:
+            sector_rank = ranking_map.get(symbol) if ranking_map else None
             result = run_backtest(
                 raw_df,
                 confidence_threshold=config.model.confidence_threshold,
                 include_macro=True,
                 benchmark_df=spy_df,
+                macro_report=macro_report,
+                sector_rank=sector_rank,
             )
             _print_backtest_result(symbol, result)
         else:
@@ -238,7 +242,7 @@ def _print_backtest_result(symbol: str, result) -> None:
     print(f"    총 거래 수: {result.total_trades}")
 
     if result.benchmark_return is not None:
-        print(f"\n    --- SPY 벤치마크 비교 ---")
+        print("\n    --- SPY 벤치마크 비교 ---")
         print(f"    SPY 총 수익률: {result.benchmark_return:.2%}")
         print(f"    SPY 연간 수익률: {result.benchmark_annual_return:.2%}")
         print(f"    SPY 샤프 비율: {result.benchmark_sharpe:.2f}")
