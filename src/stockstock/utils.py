@@ -22,19 +22,21 @@ def get_nyse_calendar() -> xcals.ExchangeCalendar:
 
 def is_market_open() -> bool:
     """현재 NYSE 마켓이 열려있는지 확인합니다."""
-    now_et = datetime.now(ET)
+    now_utc_dt = datetime.now(UTC)
     cal = get_nyse_calendar()
 
+    # 세션 확인은 ET 기준 날짜로
+    now_et_dt = now_utc_dt.astimezone(ET)
     try:
-        if not cal.is_session(now_et.date()):
+        if not cal.is_session(now_et_dt.date()):
             return False
     except ValueError:
         return False
 
-    # exchange-calendars는 tz-naive timestamp를 기대
-    now_naive = now_et.replace(tzinfo=None)
+    # exchange-calendars는 naive timestamp를 UTC로 해석하므로 UTC naive를 전달
+    now_naive_utc = now_utc_dt.replace(tzinfo=None)
     try:
-        return cal.is_open_on_minute(now_naive)
+        return cal.is_open_on_minute(now_naive_utc)
     except ValueError:
         return False
 
